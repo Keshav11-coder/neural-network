@@ -7,6 +7,8 @@
 #include <ctime>
 #include <tuple>
 
+// I'm so sorry
+
 namespace neural
 {
     struct matrix
@@ -742,36 +744,18 @@ namespace neural
         }
     };
 
-    template <typename... Layers>
     class network_v2
     {
     private:
     public:
         std::vector<std::vector<float>> input;
-        std::tuple<Layers...> layers;
+        std::vector<layer *> layers;
 
+        template <typename... Layers>
         network_v2(std::vector<std::vector<float>> input_, Layers... layers_)
         {
             input = input_;
-            layers = std::make_tuple(layers_...);
-        }
-
-        layer *operator[](std::size_t index)
-        {
-            // Ensure the index is within bounds
-            if (index >= std::tuple_size<std::tuple<Layers...>>::value)
-            {
-                throw std::out_of_range("Index out of range");
-            }
-
-            // Helper lambda to get the element at the given runtime index
-            layer *result = nullptr;
-            std::size_t current_index = 0;
-
-            std::apply([&](auto &...args)
-                       { ((current_index == index ? result = args : void(), current_index++), ...); }, layers);
-
-            return result;
+            (layers.push_back(layers_), ...);
         }
     };
 
@@ -807,6 +791,8 @@ namespace neural
         }
     }
 
+
+    //Network V1 support'
     std::vector<std::vector<float>> feedforward(network *network_)
     {
         std::vector<std::vector<std::vector<float>>> a;
@@ -937,20 +923,32 @@ namespace neural
         std::vector<std::vector<std::vector<float>>> layerGradientWeights(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
         std::vector<std::vector<std::vector<float>>> layerGradientBiases(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
 
+        // Calculate activations during forward pass
         std::vector<std::vector<std::vector<float>>> calculated_a = feedforward_a(network_);
 
         for (int i = network_->layers.size() - 1; i > -1; i--)
         {
-            if (i == network_->layers.size() - 1)
+            if (i == network_->layers.size() - 1) // Output layer
             {
-                layerErrorTerms[i] = matrix.multiply_hadamard(matrix.difference(output, target), activate_derivative(output, network_->layers[i]->layer_activation));
-                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i + 1])); // matrix.multiply(layerErrorTerms[i], calculated_a[i]); // current error term times the previous output
-                layerGradientBiases[i] = layerErrorTerms[i];
+                if (network_->layers[i]->layer_activation == Softmax)
+                {
+                    layerErrorTerms[i] = matrix.difference(output, target); // Softmax specific
+                }
+                else
+                {
+                    layerErrorTerms[i] = matrix.multiply_hadamard(matrix.difference(output, target), activate_derivative(output, network_->layers[i]->layer_activation));
+                }
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i + 1]));
+                layerGradientBiases[i] = layerErrorTerms[i]; // Gradient for biases is the same as error terms
             }
-            else if (i != network_->layers.size() - 1)
+            else // Hidden layers
             {
                 layerErrorTerms[i] = matrix.multiply_hadamard(matrix.multiply(matrix.transpose(network_->layers[i + 1]->weights), layerErrorTerms[i + 1]), activate_derivative(calculated_a[i + 1], network_->layers[i + 1]->layer_activation));
-                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i])); // current error term times the previous output
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i]));
                 layerGradientBiases[i] = layerErrorTerms[i];
             }
         }
@@ -964,27 +962,32 @@ namespace neural
         std::vector<std::vector<std::vector<float>>> layerGradientWeights(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
         std::vector<std::vector<std::vector<float>>> layerGradientBiases(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
 
+        // Calculate activations during forward pass with alternative input
         std::vector<std::vector<std::vector<float>>> calculated_a = feedforward_a(input_alt, network_);
 
         for (int i = network_->layers.size() - 1; i > -1; i--)
         {
-            if (i == network_->layers.size() - 1)
+            if (i == network_->layers.size() - 1) // Output layer
             {
                 if (network_->layers[i]->layer_activation == Softmax)
                 {
-                    layerErrorTerms[i] = matrix.difference(output, target);
+                    layerErrorTerms[i] = matrix.difference(output, target); // Softmax specific
                 }
                 else
                 {
                     layerErrorTerms[i] = matrix.multiply_hadamard(matrix.difference(output, target), activate_derivative(output, network_->layers[i]->layer_activation));
                 }
-                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i + 1])); // matrix.multiply(layerErrorTerms[i], calculated_a[i]); // current error term times the previous output
-                layerGradientBiases[i] = layerErrorTerms[i];
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i + 1]));
+                layerGradientBiases[i] = layerErrorTerms[i]; // Gradient for biases is the same as error terms
             }
-            else if (i != network_->layers.size() - 1)
+            else // Hidden layers
             {
                 layerErrorTerms[i] = matrix.multiply_hadamard(matrix.multiply(matrix.transpose(network_->layers[i + 1]->weights), layerErrorTerms[i + 1]), activate_derivative(calculated_a[i + 1], network_->layers[i + 1]->layer_activation));
-                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i])); // current error term times the previous output
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i]));
                 layerGradientBiases[i] = layerErrorTerms[i];
             }
         }
@@ -1058,6 +1061,303 @@ namespace neural
     }
 
     network *mutate(network *network_, float amount = 1)
+    {
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            for (int j = 0; j < network_->layers[i]->weights.size(); j++)
+            {
+                for (int k = 0; k < network_->layers[i]->weights[0].size(); k++)
+                {
+                    network_->layers[i]->weights[j][k] = lerp(
+                        network_->layers[i]->weights[j][k],
+                        createWeights(1)[0],
+                        amount);
+                }
+            }
+            for (int j = 0; j < network_->layers[i]->biases.size(); j++)
+            {
+                for (int k = 0; k < network_->layers[i]->biases[0].size(); k++)
+                {
+                    network_->layers[i]->biases[j][k] = lerp(
+                        network_->layers[i]->biases[j][k],
+                        createWeights(1)[0],
+                        amount);
+                }
+            }
+        }
+
+        return network_;
+    }
+
+    // Network V2 support'
+    std::vector<std::vector<float>> feedforward(network_v2 *network_)
+    {
+        std::vector<std::vector<std::vector<float>>> a;
+        std::vector<std::vector<std::vector<float>>> z;
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            if (i == 0)
+            {
+                a.push_back(activate(forward_pass(network_->input, network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(network_->input, network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+            else if (i != 0)
+            {
+                a.push_back(activate(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+        }
+        return a[a.size() - 1];
+    }
+
+    std::vector<std::vector<std::vector<float>>> feedforward_a(network_v2 *network_)
+    {
+        std::vector<std::vector<std::vector<float>>> a;
+        std::vector<std::vector<std::vector<float>>> z;
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            if (i == 0)
+            {
+                a.push_back(activate(forward_pass(network_->input, network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(network_->input, network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+            else if (i != 0)
+            {
+                a.push_back(activate(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+        }
+        a.insert(a.begin(), {network_->input});
+        return a;
+    }
+
+    std::vector<std::vector<std::vector<float>>> feedforward_z(network_v2 *network_)
+    {
+        std::vector<std::vector<std::vector<float>>> a;
+        std::vector<std::vector<std::vector<float>>> z;
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            if (i == 0)
+            {
+                a.push_back(activate(forward_pass(network_->input, network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(network_->input, network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+            else if (i != 0)
+            {
+                a.push_back(activate(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+        }
+        z.insert(z.begin(), {network_->input});
+        return z;
+    }
+
+    std::vector<std::vector<float>> feedforward(std::vector<std::vector<float>> input_alt, network_v2 *network_)
+    {
+        std::vector<std::vector<std::vector<float>>> a;
+        std::vector<std::vector<std::vector<float>>> z;
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            if (i == 0)
+            {
+                a.push_back(activate(forward_pass(input_alt, network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(input_alt, network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+            else if (i != 0)
+            {
+                a.push_back(activate(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+        }
+        return a[a.size() - 1];
+    }
+
+    std::vector<std::vector<std::vector<float>>> feedforward_a(std::vector<std::vector<float>> input_alt, network_v2 *network_)
+    {
+        std::vector<std::vector<std::vector<float>>> a;
+        std::vector<std::vector<std::vector<float>>> z;
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            if (i == 0)
+            {
+                a.push_back(activate(forward_pass(input_alt, network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(input_alt, network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+            else if (i != 0)
+            {
+                a.push_back(activate(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+        }
+        a.insert(a.begin(), {input_alt});
+        return a;
+    }
+
+    std::vector<std::vector<std::vector<float>>> feedforward_z(std::vector<std::vector<float>> input_alt, network_v2 *network_)
+    {
+        std::vector<std::vector<std::vector<float>>> a;
+        std::vector<std::vector<std::vector<float>>> z;
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            if (i == 0)
+            {
+                a.push_back(activate(forward_pass(input_alt, network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(input_alt, network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+            else if (i != 0)
+            {
+                a.push_back(activate(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases), network_->layers[i]->layer_activation));
+                z.push_back(forward_pass(a[i - 1], network_->layers[i]->weights, network_->layers[i]->biases));
+            }
+        }
+        z.insert(z.begin(), {input_alt});
+        return z;
+    }
+
+    std::vector<std::vector<std::vector<std::vector<float>>>> backward_pass(network_v2 *network_, std::vector<std::vector<float>> output, std::vector<std::vector<float>> target)
+    {
+        std::vector<std::vector<std::vector<float>>> layerErrorTerms(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
+        std::vector<std::vector<std::vector<float>>> layerGradientWeights(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
+        std::vector<std::vector<std::vector<float>>> layerGradientBiases(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
+
+        // Calculate activations during forward pass
+        std::vector<std::vector<std::vector<float>>> calculated_a = feedforward_a(network_);
+
+        for (int i = network_->layers.size() - 1; i > -1; i--)
+        {
+            if (i == network_->layers.size() - 1) // Output layer
+            {
+                if (network_->layers[i]->layer_activation == Softmax)
+                {
+                    layerErrorTerms[i] = matrix.difference(output, target); // Softmax specific
+                }
+                else
+                {
+                    layerErrorTerms[i] = matrix.multiply_hadamard(matrix.difference(output, target), activate_derivative(output, network_->layers[i]->layer_activation));
+                }
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i + 1]));
+                layerGradientBiases[i] = layerErrorTerms[i]; // Gradient for biases is the same as error terms
+            }
+            else // Hidden layers
+            {
+                layerErrorTerms[i] = matrix.multiply_hadamard(matrix.multiply(matrix.transpose(network_->layers[i + 1]->weights), layerErrorTerms[i + 1]), activate_derivative(calculated_a[i + 1], network_->layers[i + 1]->layer_activation));
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i]));
+                layerGradientBiases[i] = layerErrorTerms[i];
+            }
+        }
+
+        return {layerErrorTerms, layerGradientWeights, layerGradientBiases};
+    }
+
+    std::vector<std::vector<std::vector<std::vector<float>>>> backward_pass(std::vector<std::vector<float>> input_alt, network_v2 *network_, std::vector<std::vector<float>> output, std::vector<std::vector<float>> target)
+    {
+        std::vector<std::vector<std::vector<float>>> layerErrorTerms(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
+        std::vector<std::vector<std::vector<float>>> layerGradientWeights(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
+        std::vector<std::vector<std::vector<float>>> layerGradientBiases(network_->layers.size(), std::vector<std::vector<float>>(1, std::vector<float>(1, 0)));
+
+        // Calculate activations during forward pass with alternative input
+        std::vector<std::vector<std::vector<float>>> calculated_a = feedforward_a(input_alt, network_);
+
+        for (int i = network_->layers.size() - 1; i > -1; i--)
+        {
+            if (i == network_->layers.size() - 1) // Output layer
+            {
+                if (network_->layers[i]->layer_activation == Softmax)
+                {
+                    layerErrorTerms[i] = matrix.difference(output, target); // Softmax specific
+                }
+                else
+                {
+                    layerErrorTerms[i] = matrix.multiply_hadamard(matrix.difference(output, target), activate_derivative(output, network_->layers[i]->layer_activation));
+                }
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i + 1]));
+                layerGradientBiases[i] = layerErrorTerms[i]; // Gradient for biases is the same as error terms
+            }
+            else // Hidden layers
+            {
+                layerErrorTerms[i] = matrix.multiply_hadamard(matrix.multiply(matrix.transpose(network_->layers[i + 1]->weights), layerErrorTerms[i + 1]), activate_derivative(calculated_a[i + 1], network_->layers[i + 1]->layer_activation));
+
+                // Gradient weights: Error term times previous activation
+                layerGradientWeights[i] = matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i]));
+                layerGradientBiases[i] = layerErrorTerms[i];
+            }
+        }
+
+        return {layerErrorTerms, layerGradientWeights, layerGradientBiases};
+    }
+
+    network_v2 *backpropagate(network_v2 *network_, std::vector<std::vector<float>> output, std::vector<std::vector<float>> target, float _n_)
+    {
+        std::vector<std::vector<std::vector<float>>> calculated_a = feedforward_a(network_);
+
+        std::vector<std::vector<std::vector<std::vector<float>>>> backwardPass = backward_pass(network_, output, target);
+        std::vector<std::vector<std::vector<float>>> layerErrorTerms = backwardPass[0];
+        std::vector<std::vector<std::vector<float>>> layerGradientWeights = backwardPass[1];
+        std::vector<std::vector<std::vector<float>>> layerGradientBiases = backwardPass[2];
+
+        for (int i = network_->layers.size() - 1; i > -1; i--)
+        {
+            network_->layers[i]->update_weights(matrix.difference(network_->layers[i]->weights, matrix.multiply(_n_, matrix.multiply(layerErrorTerms[i], matrix.transpose(calculated_a[i])))));
+            network_->layers[i]->update_biases(matrix.difference(network_->layers[i]->biases, matrix.multiply(_n_, layerErrorTerms[i])));
+        }
+
+        return network_;
+    }
+
+    network_v2 *backpropagate_batch(network_v2 *network_, std::vector<std::vector<std::vector<float>>> batch_inputs, std::vector<std::vector<std::vector<float>>> batch_targets, float _n_)
+    {
+        std::vector<std::vector<std::vector<float>>> accumulated_layerErrorTerms(network_->layers.size());
+        std::vector<std::vector<std::vector<float>>> accumulated_layerGradientWeights(network_->layers.size());
+        std::vector<std::vector<std::vector<float>>> accumulated_layerGradientBiases(network_->layers.size());
+
+        int batch_size = batch_inputs.size();
+
+        for (int i = 0; i < network_->layers.size(); i++)
+        {
+            accumulated_layerErrorTerms[i] = matrix.zeros(network_->layers[i]->weights);
+            accumulated_layerGradientWeights[i] = matrix.zeros(network_->layers[i]->weights);
+            accumulated_layerGradientBiases[i] = matrix.zeros(network_->layers[i]->biases);
+        }
+
+        for (int b = 0; b < batch_size; b++)
+        {
+            std::vector<std::vector<float>> output = feedforward(batch_inputs[b], network_);
+            std::vector<std::vector<float>> target = batch_targets[b];
+
+            std::vector<std::vector<std::vector<float>>> calculated_a = feedforward_a(batch_inputs[b], network_);
+
+            std::vector<std::vector<std::vector<std::vector<float>>>> backwardPass = backward_pass(batch_inputs[b], network_, output, target);
+            std::vector<std::vector<std::vector<float>>> layerErrorTerms = backwardPass[0];
+            std::vector<std::vector<std::vector<float>>> layerGradientWeights = backwardPass[1];
+            std::vector<std::vector<std::vector<float>>> layerGradientBiases = backwardPass[2];
+
+            for (int a = 0; a < network_->layers.size(); a++)
+            {
+                accumulated_layerErrorTerms[a] = matrix.sum(accumulated_layerErrorTerms[a], layerErrorTerms[a]);
+                accumulated_layerGradientWeights[a] = matrix.sum(accumulated_layerGradientWeights[a], layerGradientWeights[a]);
+                accumulated_layerGradientBiases[a] = matrix.sum(accumulated_layerGradientBiases[a], layerGradientBiases[a]);
+            }
+        }
+
+        for (int i = network_->layers.size() - 1; i > -1; i--)
+        {
+            accumulated_layerGradientWeights[i] = matrix.multiply(1.0f / batch_size, accumulated_layerGradientWeights[i]);
+            accumulated_layerGradientBiases[i] = matrix.multiply(1.0f / batch_size, accumulated_layerGradientBiases[i]);
+
+            network_->layers[i]->update_weights(matrix.difference(network_->layers[i]->weights, matrix.multiply(_n_, accumulated_layerGradientWeights[i])));
+            network_->layers[i]->update_biases(matrix.difference(network_->layers[i]->biases, matrix.multiply(_n_, accumulated_layerGradientBiases[i])));
+        }
+
+        return network_;
+    }
+
+    network_v2 *mutate(network_v2 *network_, float amount = 1)
     {
         for (int i = 0; i < network_->layers.size(); i++)
         {
